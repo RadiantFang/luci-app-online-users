@@ -404,7 +404,6 @@ end
 function index()
     entry({"admin", "status", "online_users"}, template("online_users/index"), _("Online Users"), 95)
     entry({"admin", "status", "online_users", "data"}, call("action_data")).leaf = true
-    entry({"admin", "status", "online_users", "vendors"}, call("action_vendors")).leaf = true
 end
 
 function action_data()
@@ -431,15 +430,4 @@ function action_data()
         updated_at = os.time(),
         scan = scan
     })
-end
-
-function action_vendors()
-    local content = fs.readfile("/usr/share/luci-online-users/oui.json")
-
-    http.prepare_content("application/json")
-    if content and #content > 0 then
-        http.write(content)
-    else
-        http.write("{}")
-    end
 end
