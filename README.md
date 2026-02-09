@@ -21,9 +21,23 @@
 
 ## 在 ImmortalWrt / OpenWrt 编译树中使用
 
-### 1. 放置源码
+### 1. 拉取并放置源码
 
-把本仓库放到编译树中的任一 package 目录，例如：
+在编译树根目录执行（示例放到 `package/emortal`）：
+
+```bash
+cd <openwrt-root>
+mkdir -p package/emortal
+git clone https://github.com/RadiantFang/luci-app-online-users.git package/emortal/luci-app-online-users
+```
+
+或者使用 SSH：
+
+```bash
+git clone git@github.com:RadiantFang/luci-app-online-users.git package/emortal/luci-app-online-users
+```
+
+放置后的路径示例：
 
 ```bash
 <openwrt-root>/package/emortal/luci-app-online-users
@@ -85,4 +99,3 @@ opkg install luci-i18n-online-users-zh-cn_unknown_all.ipk
 ```text
 状态 -> 在线用户
 ```
-
