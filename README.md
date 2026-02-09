@@ -1,22 +1,20 @@
 # luci-app-online-users
 
-一个用于 LuCI 的在线设备页面插件，支持显示在线/离线设备、设备类型识别，以及对未知设备手动指定类型。
+一个用于 LuCI 的在线设备页面插件，展示在线/离线设备和基础网络信息。
 
 ## 功能
 
 - 在线设备统计：总设备、在线、离线
-- 设备列表：状态、主机名、设备类型、IP、MAC、接口、租约剩余
+- 设备列表：状态、主机名、IP、MAC、接口、租约剩余
 - 后端数据来源：
   - DHCP 租约（自动读取 dnsmasq leasefile）
   - ARP / 邻居表（`/proc/net/arp` + `ip neigh`）
-- 前端轮询刷新
-- 未知设备可手动指定类型（按 MAC 保存到浏览器本地存储）
+- 前端轮询刷新（默认 5 秒）
 
 ## 目录结构
 
 - `luasrc/controller/online_users.lua`：后端接口与设备数据聚合
 - `luasrc/view/online_users/index.htm`：LuCI 页面
-- `root/usr/share/luci-online-users/oui.json`：厂商 OUI 数据文件（当前页面未展示厂商列）
 - `po/zh_Hans/online_users.po`：中文翻译
 
 ## 在 ImmortalWrt / OpenWrt 编译树中使用
