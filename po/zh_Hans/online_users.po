@@ -1,0 +1,86 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+msgid "Online Users"
+msgstr "在线用户"
+
+msgid "The page triggers a light scan first (throttled to 30 seconds), then merges ARP neighbors with DHCP leases. Static IP devices are also shown once they appear in ARP."
+msgstr "页面会先触发轻量扫描（30 秒节流），再合并 ARP 邻居与 DHCP 租约结果。静态 IP 设备只要出现在 ARP 中也会显示。"
+
+msgid "Total Devices"
+msgstr "总设备"
+
+msgid "Online"
+msgstr "在线"
+
+msgid "Offline"
+msgstr "离线"
+
+msgid "Last Update"
+msgstr "最近更新"
+
+msgid "Scan Status"
+msgstr "扫描状态"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Hostname"
+msgstr "主机名"
+
+msgid "Device"
+msgstr "设备"
+
+msgid "Vendor"
+msgstr "厂商"
+
+msgid "IP Address"
+msgstr "IP 地址"
+
+msgid "MAC Address"
+msgstr "MAC 地址"
+
+msgid "Interface"
+msgstr "接口"
+
+msgid "Lease Remaining"
+msgstr "租约剩余"
+
+msgid "Loading..."
+msgstr "加载中..."
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "No devices"
+msgstr "暂无设备"
+
+msgid "Throttled (waiting for next scan window)"
+msgstr "已节流（等待下一次扫描窗口）"
+
+msgid "No LAN CIDR detected"
+msgstr "未检测到 LAN 网段"
+
+msgid "No eligible CIDR to scan"
+msgstr "没有可扫描的网段"
+
+msgid "Phone"
+msgstr "手机"
+
+msgid "Tablet"
+msgstr "平板"
+
+msgid "Computer"
+msgstr "电脑"
+
+msgid "IoT"
+msgstr "物联网"
+
+msgid "Method"
+msgstr "方式"
+
+msgid "CIDRs"
+msgstr "网段数"
+
+msgid "Skipped"
+msgstr "跳过"

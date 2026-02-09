@@ -1,0 +1,441 @@
+<%+header%>
+
+<h2><%:Online Users%></h2>
+<div class="cbi-section-descr"><%:The page triggers a light scan first (throttled to 30 seconds), then merges ARP neighbors with DHCP leases. Static IP devices are also shown once they appear in ARP.%></div>
+
+<style type="text/css">
+    .ou-stats {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin: 12px 0 14px;
+    }
+    .ou-card {
+        border: 1px solid #dcdcdc;
+        border-radius: 8px;
+        padding: 10px 14px;
+        min-width: 120px;
+        background: #fff;
+    }
+    .ou-card .label {
+        display: block;
+        color: #666;
+        font-size: 12px;
+    }
+    .ou-card .value {
+        display: block;
+        margin-top: 2px;
+        font-size: 22px;
+        line-height: 1.2;
+        font-weight: 600;
+    }
+    .ou-meta {
+        margin: 4px 0 10px;
+        color: #666;
+        font-size: 12px;
+    }
+    .ou-meta + .ou-meta {
+        margin-top: -2px;
+    }
+    #online-users-table {
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+    #online-users-table thead th {
+        background: #f6f8fa;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    #online-users-table tbody tr:nth-child(even) {
+        background: #fafafa;
+    }
+    .ou-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .ou-online {
+        background: #e6f7ea;
+        color: #0f7a2f;
+    }
+    .ou-offline {
+        background: #f3f4f6;
+        color: #555;
+    }
+    .ou-host {
+        font-weight: 600;
+    }
+    .ou-mono {
+        font-family: Menlo, Consolas, monospace;
+        font-size: 12px;
+    }
+    .ou-device {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+    }
+    .ou-device svg {
+        width: 16px;
+        height: 16px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+    .ou-device-phone {
+        color: #1d4ed8;
+    }
+    .ou-device-computer {
+        color: #475569;
+    }
+    .ou-device-tablet {
+        color: #0f766e;
+    }
+    .ou-device-iot {
+        color: #b45309;
+    }
+    .ou-device-unknown {
+        color: #6b7280;
+    }
+    .ou-type-select {
+        margin-left: 6px;
+        font-size: 12px;
+        padding: 1px 3px;
+    }
+    @media (max-width: 900px) {
+        #online-users-table th:nth-child(6),
+        #online-users-table td:nth-child(6),
+        #online-users-table th:nth-child(7),
+        #online-users-table td:nth-child(7) {
+            display: none;
+        }
+    }
+</style>
+
+<div class="ou-stats">
+    <div class="ou-card">
+        <span class="label"><%:Total Devices%></span>
+        <span class="value" id="ou-total">0</span>
+    </div>
+    <div class="ou-card">
+        <span class="label"><%:Online%></span>
+        <span class="value" id="ou-online">0</span>
+    </div>
+    <div class="ou-card">
+        <span class="label"><%:Offline%></span>
+        <span class="value" id="ou-offline">0</span>
+    </div>
+</div>
+
+<div class="ou-meta"><%:Last Update%>: <span id="ou-updated-at">-</span></div>
+<div class="ou-meta"><%:Scan Status%>: <span id="ou-scan-status">-</span></div>
+
+<table class="table" id="online-users-table">
+    <thead>
+        <tr>
+            <th><%:Status%></th>
+            <th><%:Hostname%></th>
+            <th><%:Device%></th>
+            <th><%:IP Address%></th>
+            <th><%:MAC Address%></th>
+            <th><%:Interface%></th>
+            <th><%:Lease Remaining%></th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td colspan="7"><%:Loading...%></td>
+        </tr>
+    </tbody>
+</table>
+
+<script type="text/javascript">
+    var dataUrl = '<%=luci.dispatcher.build_url("admin", "status", "online_users", "data")%>';
+    var TYPE_MAP_STORAGE_KEY = 'online_users_type_map_v1';
+    var TXT_UNKNOWN = '<%:Unknown%>';
+    var TXT_NO_DEVICES = '<%:No devices%>';
+    var TXT_ONLINE = '<%:Online%>';
+    var TXT_OFFLINE = '<%:Offline%>';
+    var TXT_SCAN_THROTTLED = '<%:Throttled (waiting for next scan window)%>';
+    var TXT_SCAN_NO_CIDR = '<%:No LAN CIDR detected%>';
+    var TXT_SCAN_SKIPPED = '<%:No eligible CIDR to scan%>';
+    var TYPE_LABELS = {
+        phone: '<%:Phone%>',
+        tablet: '<%:Tablet%>',
+        computer: '<%:Computer%>',
+        iot: '<%:IoT%>',
+        unknown: TXT_UNKNOWN
+    };
+
+    function formatLease(seconds) {
+        var s = parseInt(seconds || 0, 10);
+        if (s <= 0)
+            return '-';
+
+        var h = Math.floor(s / 3600);
+        var m = Math.floor((s % 3600) / 60);
+        var sec = s % 60;
+        return h + 'h ' + m + 'm ' + sec + 's';
+    }
+
+    function normalizeMac(mac) {
+        return String(mac || '').toUpperCase().replace(/[^0-9A-F:]/g, '');
+    }
+
+    function loadTypeMap() {
+        try {
+            return JSON.parse(window.localStorage.getItem(TYPE_MAP_STORAGE_KEY) || '{}');
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function saveTypeMap(map) {
+        try {
+            window.localStorage.setItem(TYPE_MAP_STORAGE_KEY, JSON.stringify(map || {}));
+        } catch (e) {}
+    }
+
+    function getTypeOverride(mac) {
+        var key = normalizeMac(mac);
+        if (!key)
+            return '';
+        return loadTypeMap()[key] || '';
+    }
+
+    function setTypeOverride(mac, type) {
+        var key = normalizeMac(mac);
+        if (!key)
+            return;
+
+        var map = loadTypeMap();
+        if (!type || type === 'unknown')
+            delete map[key];
+        else
+            map[key] = type;
+        saveTypeMap(map);
+    }
+
+    function renderRows(users) {
+        var tbody = document.querySelector('#online-users-table tbody');
+        tbody.innerHTML = '';
+
+        if (!users || !users.length) {
+            var emptyTr = document.createElement('tr');
+            var emptyTd = document.createElement('td');
+            emptyTd.colSpan = 7;
+            emptyTd.textContent = TXT_NO_DEVICES;
+            emptyTr.appendChild(emptyTd);
+            tbody.appendChild(emptyTr);
+            return;
+        }
+
+        function classifyDevice(hostname, mac) {
+            var override = getTypeOverride(mac);
+            if (override && TYPE_LABELS[override]) {
+                return {
+                    type: override,
+                    label: TYPE_LABELS[override],
+                    custom: true
+                };
+            }
+
+            var h = String(hostname || '').toLowerCase();
+            if (!h)
+                h = '';
+
+            if (/(iphone|android|huawei|honor|oppo|vivo|xiaomi|redmi|oneplus|samsung|phone|mobile|iqoo|realme)/.test(h))
+                return { type: 'phone', label: '<%:Phone%>' };
+
+            if (/(ipad|tablet|pad|tab)/.test(h))
+                return { type: 'tablet', label: '<%:Tablet%>' };
+
+            if (/(laptop|notebook|desktop|pc|macbook|imac|thinkpad|surface|windows|mac)/.test(h))
+                return { type: 'computer', label: '<%:Computer%>' };
+
+            if (/(camera|cam|tv|printer|speaker|light|bulb|plug|sensor|iot|esp|switch|watch|vacuum|air|ac)/.test(h))
+                return { type: 'iot', label: '<%:IoT%>' };
+
+            return { type: 'unknown', label: TXT_UNKNOWN, custom: false };
+        }
+
+        function deviceIcon(type) {
+            if (type === 'phone')
+                return '<svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2"></rect><line x1="10" y1="5.5" x2="14" y2="5.5"></line><circle cx="12" cy="18.5" r="0.7"></circle></svg>';
+            if (type === 'tablet')
+                return '<svg viewBox="0 0 24 24"><rect x="5" y="2.5" width="14" height="19" rx="2"></rect><circle cx="12" cy="18.5" r="0.7"></circle></svg>';
+            if (type === 'computer')
+                return '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="1.8"></rect><line x1="8" y1="20" x2="16" y2="20"></line><line x1="12" y1="16" x2="12" y2="20"></line></svg>';
+            if (type === 'iot')
+                return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"></circle><path d="M5 9a8 8 0 0 1 14 0"></path><path d="M7 15a6 6 0 0 0 10 0"></path><path d="M3.5 6.5a11 11 0 0 1 17 0"></path></svg>';
+            return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="12"></line><circle cx="12" cy="15.5" r="0.7"></circle></svg>';
+        }
+
+        users.forEach(function(u) {
+            var tr = document.createElement('tr');
+            var device = classifyDevice(u.hostname || '', u.mac || '');
+            var statusTd = document.createElement('td');
+            var statusSpan = document.createElement('span');
+            statusSpan.className = 'ou-badge ' + (u.online ? 'ou-online' : 'ou-offline');
+            statusSpan.textContent = u.online ? TXT_ONLINE : TXT_OFFLINE;
+            statusTd.appendChild(statusSpan);
+            tr.appendChild(statusTd);
+
+            var hostTd = document.createElement('td');
+            hostTd.className = 'ou-host';
+            hostTd.textContent = u.hostname || '-';
+            tr.appendChild(hostTd);
+
+            var deviceTd = document.createElement('td');
+            var deviceWrap = document.createElement('span');
+            deviceWrap.className = 'ou-device ou-device-' + device.type;
+            deviceWrap.innerHTML = deviceIcon(device.type) + '<span>' + device.label + '</span>';
+            deviceTd.appendChild(deviceWrap);
+
+            if (device.type === 'unknown' || device.custom) {
+                var typeSelect = document.createElement('select');
+                typeSelect.className = 'ou-type-select';
+                [
+                    ['unknown', TXT_UNKNOWN],
+                    ['phone', '<%:Phone%>'],
+                    ['tablet', '<%:Tablet%>'],
+                    ['computer', '<%:Computer%>'],
+                    ['iot', '<%:IoT%>']
+                ].forEach(function(item) {
+                    var opt = document.createElement('option');
+                    opt.value = item[0];
+                    opt.textContent = item[1];
+                    if (device.type === item[0])
+                        opt.selected = true;
+                    typeSelect.appendChild(opt);
+                });
+
+                typeSelect.addEventListener('change', function() {
+                    setTypeOverride(u.mac || '', this.value);
+                    renderRows(users);
+                });
+                deviceTd.appendChild(typeSelect);
+            }
+
+            tr.appendChild(deviceTd);
+
+            var ipTd = document.createElement('td');
+            ipTd.className = 'ou-mono';
+            ipTd.textContent = u.ip || '-';
+            tr.appendChild(ipTd);
+
+            var macTd = document.createElement('td');
+            macTd.className = 'ou-mono';
+            macTd.textContent = u.mac || '-';
+            tr.appendChild(macTd);
+
+            var ifaceTd = document.createElement('td');
+            ifaceTd.textContent = u.iface || '-';
+            tr.appendChild(ifaceTd);
+
+            var leaseTd = document.createElement('td');
+            leaseTd.textContent = formatLease(u.lease_remaining);
+            tr.appendChild(leaseTd);
+
+            tbody.appendChild(tr);
+        });
+    }
+
+    function updateStats(users) {
+        var total = (users && users.length) || 0;
+        var online = 0;
+
+        (users || []).forEach(function(u) {
+            if (u.online)
+                online++;
+        });
+
+        document.getElementById('ou-total').textContent = total;
+        document.getElementById('ou-online').textContent = online;
+        document.getElementById('ou-offline').textContent = (total - online);
+    }
+
+    function updateTimestamp(ts) {
+        if (!ts) {
+            document.getElementById('ou-updated-at').textContent = '-';
+            return;
+        }
+
+        var d = new Date(ts * 1000);
+        document.getElementById('ou-updated-at').textContent = d.toLocaleString();
+    }
+
+    function updateScanStatus(scan) {
+        var el = document.getElementById('ou-scan-status');
+        if (!scan || typeof scan !== 'object') {
+            el.textContent = '-';
+            return;
+        }
+
+        if (scan.executed === false) {
+            if (scan.reason === 'throttled')
+                el.textContent = TXT_SCAN_THROTTLED;
+            else if (scan.reason === 'no_lan_cidr')
+                el.textContent = TXT_SCAN_NO_CIDR;
+            else
+                el.textContent = '-';
+            return;
+        }
+
+        var method = scan.method || '-';
+        var cidrCount = parseInt(scan.cidr_count || 0, 10);
+        var skipped = parseInt(scan.skipped_cidrs || 0, 10);
+        if (scan.reason === 'scan_skipped')
+            el.textContent = TXT_SCAN_SKIPPED;
+        else
+            el.textContent = '<%:Method%>: ' + method + ', ' + '<%:CIDRs%>: ' + cidrCount + ', ' + '<%:Skipped%>: ' + skipped;
+    }
+
+    function safeJsonParse(raw) {
+        try {
+            return JSON.parse(raw);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function httpGetJson(url, done) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== 4)
+                return;
+
+            if (xhr.status >= 200 && xhr.status < 300)
+                done(safeJsonParse(xhr.responseText));
+            else
+                done(null);
+        };
+        xhr.send(null);
+    }
+
+    function refreshData() {
+        httpGetJson(dataUrl, function(pdata) {
+            var users = (pdata && Array.isArray(pdata.users)) ? pdata.users : [];
+            renderRows(users);
+            updateStats(users);
+            updateTimestamp(pdata && pdata.updated_at);
+            updateScanStatus(pdata && pdata.scan);
+        });
+    }
+
+    function bootstrap() {
+        refreshData();
+        window.setInterval(refreshData, 5000);
+    }
+
+    if (document.readyState === 'loading')
+        document.addEventListener('DOMContentLoaded', bootstrap);
+    else
+        bootstrap();
+</script>
+
+<%+footer%>
