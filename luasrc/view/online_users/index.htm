@@ -1,0 +1,302 @@
+<%+header%>
+
+<h2><%:Online Users%></h2>
+<div class="cbi-section-descr"><%:The page triggers a light IPv4 scan first (throttled to 30 seconds), then merges ARP/IPv4-neigh/IPv6-neigh with DHCP leases. Static IP devices are also shown once they appear in neighbor tables.%></div>
+
+<style type="text/css">
+    .ou-stats {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin: 12px 0 14px;
+    }
+    .ou-card {
+        border: 1px solid #dcdcdc;
+        border-radius: 8px;
+        padding: 10px 14px;
+        min-width: 120px;
+        background: #fff;
+    }
+    .ou-card .label {
+        display: block;
+        color: #666;
+        font-size: 12px;
+    }
+    .ou-card .value {
+        display: block;
+        margin-top: 2px;
+        font-size: 22px;
+        line-height: 1.2;
+        font-weight: 600;
+    }
+    .ou-meta {
+        margin: 4px 0 10px;
+        color: #666;
+        font-size: 12px;
+    }
+    .ou-meta + .ou-meta {
+        margin-top: -2px;
+    }
+    #online-users-table {
+        border-collapse: separate;
+        border-spacing: 0;
+        width: 100%;
+        table-layout: fixed;
+    }
+    #online-users-table thead th {
+        background: #f6f8fa;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    #online-users-table th,
+    #online-users-table td {
+        text-align: center;
+        vertical-align: middle;
+    }
+    #online-users-table .ou-cell-mac,
+    #online-users-table .ou-cell-ip,
+    #online-users-table .ou-cell-iface {
+        white-space: normal;
+        word-break: break-all;
+    }
+    #online-users-table col.ou-col-status {
+        width: 110px;
+    }
+    #online-users-table col.ou-col-hostname {
+        width: 22%;
+    }
+    #online-users-table col.ou-col-ip {
+        width: 18%;
+    }
+    #online-users-table col.ou-col-mac {
+        width: 22%;
+    }
+    #online-users-table col.ou-col-iface {
+        width: 14%;
+    }
+    #online-users-table tbody tr:nth-child(even) {
+        background: #fafafa;
+    }
+    .ou-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .ou-online {
+        background: #e6f7ea;
+        color: #0f7a2f;
+    }
+    .ou-offline {
+        background: #f3f4f6;
+        color: #555;
+    }
+    .ou-host {
+        font-weight: 600;
+    }
+    .ou-mono {
+        font-family: Menlo, Consolas, monospace;
+        font-size: 12px;
+    }
+    @media (max-width: 900px) {
+        #online-users-table th:nth-child(5),
+        #online-users-table td:nth-child(5) {
+            display: none;
+        }
+    }
+</style>
+
+<div class="ou-stats">
+    <div class="ou-card">
+        <span class="label"><%:Total Devices%></span>
+        <span class="value" id="ou-total">0</span>
+    </div>
+    <div class="ou-card">
+        <span class="label"><%:Online%></span>
+        <span class="value" id="ou-online">0</span>
+    </div>
+    <div class="ou-card">
+        <span class="label"><%:Offline%></span>
+        <span class="value" id="ou-offline">0</span>
+    </div>
+</div>
+
+<div class="ou-meta"><%:Last Update%>: <span id="ou-updated-at">-</span></div>
+<div class="ou-meta"><%:Scan Status%>: <span id="ou-scan-status">-</span></div>
+
+<table class="table" id="online-users-table">
+    <colgroup>
+        <col class="ou-col-status" />
+        <col class="ou-col-hostname" />
+        <col class="ou-col-ip" />
+        <col class="ou-col-mac" />
+        <col class="ou-col-iface" />
+    </colgroup>
+    <thead>
+        <tr>
+            <th class="ou-cell-status"><%:Status%></th>
+            <th class="ou-cell-host"><%:Hostname%></th>
+            <th class="ou-cell-ip"><%:IP Address%></th>
+            <th class="ou-cell-mac"><%:MAC Address%></th>
+            <th class="ou-cell-iface"><%:Interface%></th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td colspan="5"><%:Loading...%></td>
+        </tr>
+    </tbody>
+</table>
+
+<script type="text/javascript">
+    var dataUrl = '<%=luci.dispatcher.build_url("admin", "status", "online_users", "data")%>';
+    var TXT_NO_DEVICES = '<%:No devices%>';
+    var TXT_ONLINE = '<%:Online%>';
+    var TXT_OFFLINE = '<%:Offline%>';
+    var TXT_SCAN_THROTTLED = '<%:Throttled (waiting for next scan window)%>';
+    var TXT_SCAN_NO_CIDR = '<%:No LAN IPv4 CIDR detected%>';
+    var TXT_SCAN_SKIPPED = '<%:No eligible IPv4 CIDR to scan%>';
+
+    function renderRows(users) {
+        var tbody = document.querySelector('#online-users-table tbody');
+        tbody.innerHTML = '';
+
+        if (!users || !users.length) {
+            var emptyTr = document.createElement('tr');
+            var emptyTd = document.createElement('td');
+            emptyTd.colSpan = 5;
+            emptyTd.textContent = TXT_NO_DEVICES;
+            emptyTr.appendChild(emptyTd);
+            tbody.appendChild(emptyTr);
+            return;
+        }
+
+        users.forEach(function(u) {
+            var tr = document.createElement('tr');
+            var statusTd = document.createElement('td');
+            statusTd.className = 'ou-cell-status';
+            var statusSpan = document.createElement('span');
+            statusSpan.className = 'ou-badge ' + (u.online ? 'ou-online' : 'ou-offline');
+            statusSpan.textContent = u.online ? TXT_ONLINE : TXT_OFFLINE;
+            statusTd.appendChild(statusSpan);
+            tr.appendChild(statusTd);
+
+            var hostTd = document.createElement('td');
+            hostTd.className = 'ou-host ou-cell-host';
+            hostTd.textContent = u.hostname || '-';
+            tr.appendChild(hostTd);
+
+            var ipTd = document.createElement('td');
+            ipTd.className = 'ou-mono ou-cell-ip';
+            ipTd.textContent = u.ip || '-';
+            tr.appendChild(ipTd);
+
+            var macTd = document.createElement('td');
+            macTd.className = 'ou-mono ou-cell-mac';
+            macTd.textContent = u.mac || '-';
+            tr.appendChild(macTd);
+
+            var ifaceTd = document.createElement('td');
+            ifaceTd.className = 'ou-cell-iface';
+            ifaceTd.textContent = u.iface || '-';
+            tr.appendChild(ifaceTd);
+
+            tbody.appendChild(tr);
+        });
+    }
+
+    function updateStats(users) {
+        var total = (users && users.length) || 0;
+        var online = 0;
+
+        (users || []).forEach(function(u) {
+            if (u.online)
+                online++;
+        });
+
+        document.getElementById('ou-total').textContent = total;
+        document.getElementById('ou-online').textContent = online;
+        document.getElementById('ou-offline').textContent = (total - online);
+    }
+
+    function updateTimestamp(ts) {
+        if (!ts) {
+            document.getElementById('ou-updated-at').textContent = '-';
+            return;
+        }
+
+        var d = new Date(ts * 1000);
+        document.getElementById('ou-updated-at').textContent = d.toLocaleString();
+    }
+
+    function updateScanStatus(scan) {
+        var el = document.getElementById('ou-scan-status');
+        if (!scan || typeof scan !== 'object') {
+            el.textContent = '-';
+            return;
+        }
+
+        if (scan.executed === false) {
+            if (scan.reason === 'throttled')
+                el.textContent = TXT_SCAN_THROTTLED;
+            else if (scan.reason === 'no_lan_cidr')
+                el.textContent = TXT_SCAN_NO_CIDR;
+            else
+                el.textContent = '-';
+            return;
+        }
+
+        var method = scan.method || '-';
+        var cidrCount = parseInt(scan.cidr_count || 0, 10);
+        var skipped = parseInt(scan.skipped_cidrs || 0, 10);
+        if (scan.reason === 'scan_skipped')
+            el.textContent = TXT_SCAN_SKIPPED;
+        else
+            el.textContent = '<%:Method%>: ' + method + ', ' + '<%:CIDRs%>: ' + cidrCount + ', ' + '<%:Skipped%>: ' + skipped;
+    }
+
+    function safeJsonParse(raw) {
+        try {
+            return JSON.parse(raw);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function httpGetJson(url, done) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== 4)
+                return;
+
+            if (xhr.status >= 200 && xhr.status < 300)
+                done(safeJsonParse(xhr.responseText));
+            else
+                done(null);
+        };
+        xhr.send(null);
+    }
+
+    function refreshData() {
+        httpGetJson(dataUrl, function(pdata) {
+            var users = (pdata && Array.isArray(pdata.users)) ? pdata.users : [];
+            renderRows(users);
+            updateStats(users);
+            updateTimestamp(pdata && pdata.updated_at);
+            updateScanStatus(pdata && pdata.scan);
+        });
+    }
+
+    function bootstrap() {
+        refreshData();
+        window.setInterval(refreshData, 5000);
+    }
+
+    if (document.readyState === 'loading')
+        document.addEventListener('DOMContentLoaded', bootstrap);
+    else
+        bootstrap();
+</script>
+
+<%+footer%>
